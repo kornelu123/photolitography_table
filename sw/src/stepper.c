@@ -24,7 +24,7 @@
 #define DELAY_PER_STATE     6
 
 #if DELAY_PER_STATE < 6
-#error "DELAY_PER_STATE should be at least 9"
+  #error "DELAY_PER_STATE should be at least 9"
 #endif
 
 #define CLOCKWISE           0
