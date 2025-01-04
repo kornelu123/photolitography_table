@@ -104,10 +104,6 @@ step(stepper_ctx_t stepper_ctx[])
     mask |= (stepper_ctx[i].cur_dir_masks[stepper_ctx[i].cur_step_ind] << stepper_ctx[i].gpio_offset);
   }
 
-  printf("Mask:%08X, step_0:%08X, step_1:%08X\r\n", mask, 
-      stepper_ctx[0].cur_dir_masks[stepper_ctx[0].cur_step_ind],
-      stepper_ctx[1].cur_dir_masks[stepper_ctx[1].cur_step_ind]);
-
   gpio_set_mask(mask);
 
   sleep_ms(DELAY_PER_STATE);
@@ -117,10 +113,7 @@ step(stepper_ctx_t stepper_ctx[])
   for(int i=0; i<STEPPER_COUNT; i++)
   {
     if(stepper_ctx[i].cur_dir_masks == gpio_stepper_masks[NO_ROT])
-    {
       continue;
-      printf("cwel\r\n");
-    }
 
     stepper_ctx[i].cur_step_ind = (stepper_ctx[i].cur_step_ind + 1) % 8;
   }
@@ -217,7 +210,7 @@ move(int x, int y)
       step(stepper_ctx);
     }
 
-    return maybe_move_y(y);;
+    return;
   }
 
   set_dir(COUNTER_CLOCKWISE, &stepper_ctx[0]);
@@ -226,6 +219,4 @@ move(int x, int y)
   for(int i=0; i<x; i++){
     step(stepper_ctx);
   }
-
-  return maybe_move_y(y);
 }
