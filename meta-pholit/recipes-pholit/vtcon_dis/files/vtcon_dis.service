@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable VT Console Binding to Framebuffer
+After=sysinit.target
+Before=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "echo 0 > /sys/class/vtconsole/vtcon0/bind && echo 0 > /sys/class/vtconsole/vtcon1/bind "
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

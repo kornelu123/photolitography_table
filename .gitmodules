@@ -1,0 +1,3 @@
+[submodule "tisdk"]
+	path = tisdk
+	url = https://git.ti.com/git/arago-project/oe-layersetup.git

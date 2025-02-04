@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD 11)
 pico_sdk_init()
 
 add_executable(${PROJECT_NAME}
+  src/dist.c
   src/main.c
 )
 
@@ -18,7 +19,7 @@ target_link_libraries(${PROJECT_NAME}
 
 pico_add_extra_outputs(${PROJECT_NAME})
 
-target_link_libraries(${PROJECT_NAME} pico_stdlib hardware_pwm)
+target_link_libraries(${PROJECT_NAME} pico_stdlib hardware_pwm pico_multicore)
 
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
