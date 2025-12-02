@@ -1,0 +1,4 @@
+#!/bin/sh
+
+cmake -S . -B build -GNinja -DCMAKE_EXPORT_COMPILE_COMMANDS=Y \
+-DPICO_SDK_PATH=${PICO_SDK_PATH} -DCMAKE_BUILD_TYPE=Release \

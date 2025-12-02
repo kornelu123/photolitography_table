@@ -1,6 +1,4 @@
-FROM ubuntu:20.04
-MAINTAINER Kris Chaplin <kris.chaplin@amd.com>
-# Modified from Cliff Brake's Ubuntu container  <cbrake@bec-systems.com>
+FROM ubuntu:22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -9,12 +7,12 @@ RUN \
         apt-get update && \
         apt-get install -yq sudo build-essential git nano vim\
           python3-yaml libncursesw5 libncursesw5:i386 \
-          python python3 man bash diffstat gawk chrpath wget cpio \
+          python2 python3 man bash diffstat gawk chrpath wget cpio \
           texinfo lzop apt-utils bc screen libncurses5-dev locales \
           libc6-dev-i386 doxygen libssl-dev dos2unix xvfb x11-utils \
           g++-multilib libssl-dev:i386 zlib1g-dev:i386 \
           libtool libtool-bin procps python3-distutils pigz socat \
-          zstd iproute2 lz4 iputils-ping \
+          zstd iproute2 lz4 iputils-ping libsdl1.2-dev \
           curl libtinfo5 net-tools xterm rsync u-boot-tools unzip zip && \
 
         rm -rf /var/lib/apt-lists/* && \
@@ -22,6 +20,7 @@ RUN \
         dpkg-reconfigure dash
 
 RUN curl https://storage.googleapis.com/git-repo-downloads/repo > /bin/repo && chmod a+x /bin/repo
+RUN ln -s /usr/bin/python2.7 /usr/bin/python
 RUN sed -i "1s/python/python3/" /bin/repo
 RUN groupadd build -g 998
 RUN useradd -ms /bin/bash -p build build -u 1001 -g 998 && \

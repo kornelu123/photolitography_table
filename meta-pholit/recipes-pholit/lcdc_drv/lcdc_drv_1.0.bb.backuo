@@ -1,0 +1,52 @@
+SUMMARY = "Photolithography evm2000 driver"
+DESCRIPTION = "TI EVM2000 kernel driver for photolithography table"
+LICENSE = "CLOSED"
+
+inherit module
+
+SRC_URI = " \
+    file://Makefile \
+    file://lcdc_drv.c \
+    file://lcdc_drv.h \
+"
+
+# Add required dependencies
+DEPENDS += "virtual/kernel gmp-native"
+
+# Modified PROVIDES to remove version-specific dependency
+PROVIDES = " lcdc_drv kernel-module-lcdc-drv kernel-module-lcdc-drv-6.1.119-ti-gc490f4c0fe51"
+RPROVIDES:${PN} = "lcdc-drv"
+
+# Add explicit package naming
+PKG:${PN} = "lcdc_drv"
+MODULE_NAME = "lcdc_drv"
+
+do_compile[depends] += "virtual/kernel:do_shared_workdir virtual/kernel:do_compile"
+do_compile[network] = "1"
+
+do_compile:prepend() {
+    install -d ${B}
+    cp ${WORKDIR}/Makefile ${B}/
+    cp ${WORKDIR}/lcdc_drv.c ${B}/
+    cp ${WORKDIR}/lcdc_drv.h ${B}/
+}
+
+do_compile() {
+    oe_runmake -C "${STAGING_KERNEL_DIR}" M="${B}" modules
+}
+
+do_install() {
+    install -d ${D}${base_libdir}/modules/${KERNEL_VERSION}/kernel/drivers/misc
+    install -m 0644 ${B}/${MODULE_NAME}.ko ${D}${base_libdir}/modules/${KERNEL_VERSION}/kernel/drivers/misc
+    install -d ${D}${includedir}
+    install -m 0644 ${B}/${MODULE_NAME}.h ${D}${includedir}
+}
+
+# Explicit package files listing
+FILES:${PN} = " \
+    ${base_libdir}/modules/${KERNEL_VERSION}/kernel/drivers/misc/${MODULE_NAME}.ko \
+    ${includedir}/${MODULE_NAME}.h \
+"
+
+# Add automatic module loading
+KERNEL_MODULE_AUTOLOAD += "${MODULE_NAME}"

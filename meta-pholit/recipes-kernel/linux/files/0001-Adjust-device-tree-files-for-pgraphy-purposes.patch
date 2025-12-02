@@ -1,0 +1,171 @@
+From 5019fe2afbc5068f466a7bc6ebbcd51ff240bc70 Mon Sep 17 00:00:00 2001
+From: kornelu <kornelu12@gmail.com>
+Date: Sat, 29 Nov 2025 18:08:43 +0100
+Subject: [PATCH] Adjust device tree files for pgraphy purposes
+
+---
+ arch/arm/boot/dts/am335x-bone-common.dtsi | 57 +++++++++++++++++++++++
+ arch/arm/boot/dts/am335x-boneblack.dts    | 43 +++++++++++++++--
+ arch/arm/boot/dts/am33xx-clocks.dtsi      |  1 +
+ arch/arm/boot/dts/am33xx.dtsi             |  2 +
+ 4 files changed, 98 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm/boot/dts/am335x-bone-common.dtsi b/arch/arm/boot/dts/am335x-bone-common.dtsi
+index 02e04a12a270..04049f8cabde 100644
+--- a/arch/arm/boot/dts/am335x-bone-common.dtsi
++++ b/arch/arm/boot/dts/am335x-bone-common.dtsi
+@@ -75,6 +75,39 @@ AM33XX_PADCONF(AM335X_PIN_GPMC_A8, PIN_OUTPUT_PULLUP, MUX_MODE7)	/* gpmc_a8.gpio
+ 		>;
+ 	};
+ 
++    lcdc_pins: lcdc_pins {
++		pinctrl-single,pins = <
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD8, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad8.lcd_data23 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD9, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad9.lcd_data22 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD10, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad10.lcd_data21 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD11, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad11.lcd_data20 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD12, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad12.lcd_data19 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD13, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad13.lcd_data18 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD14, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad14.lcd_data17 */
++            AM33XX_PADCONF(AM335X_PIN_GPMC_AD15, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad15.lcd_data16 */
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA0, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA1, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA2, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA3, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA4, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA5, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA6, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA7, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA8, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA9, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA10, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA11, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA12, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA13, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA14, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_DATA15, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_VSYNC, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_HSYNC, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_PCLK, PIN_OUTPUT, MUX_MODE0)
++            AM33XX_PADCONF(AM335X_PIN_LCD_AC_BIAS_EN, PIN_OUTPUT, MUX_MODE0)
++        >;
++    };
++
+ 	i2c0_pins: pinmux_i2c0_pins {
+ 		pinctrl-single,pins = <
+ 			AM33XX_PADCONF(AM335X_PIN_I2C0_SDA, PIN_INPUT_PULLUP, MUX_MODE0)	/* i2c0_sda.i2c0_sda */
+@@ -409,3 +442,27 @@ &pruss_tm {
+ &wkup_m3_ipc {
+ 	firmware-name = "am335x-bone-scale-data.bin";
+ };
++
++&lcdc {
++	compatible = "lcdc_drv";
++	reg = <0x0 0x1000>;
++	interrupts = <36>;
++	status = "okay";
++    pinctrl-names = "default";
++    pinctrl-0 = <&lcdc_pins>;
++
++    display-timings {
++        native-mode = <&timing_lcdc>;
++        timing_lcdc: 360x640 {
++        	clock-frequency = <25000000>;
++        	hactive = <640>;
++        	vactive = <360>;
++        	hfront-porch = <32>;
++        	hback-porch = <32>;
++        	hsync-len = <64>;
++        	vback-porch = <32>;
++        	vfront-porch = <32>;
++        	vsync-len = <32>;
++        };
++    };
++};
+diff --git a/arch/arm/boot/dts/am335x-boneblack.dts b/arch/arm/boot/dts/am335x-boneblack.dts
+index b956e2f60fe0..613938d98c23 100644
+--- a/arch/arm/boot/dts/am335x-boneblack.dts
++++ b/arch/arm/boot/dts/am335x-boneblack.dts
+@@ -7,12 +7,45 @@
+ #include "am33xx.dtsi"
+ #include "am335x-bone-common.dtsi"
+ #include "am335x-boneblack-common.dtsi"
+-#include "am335x-boneblack-hdmi.dtsi"
+ 
+-/ {
+-	model = "TI AM335x BeagleBone Black";
+-	compatible = "ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx";
+-};
++/// {
++//	model = "TI AM335x BeagleBone Black";
++//	compatible = "ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx";
++//
++//    panel {
++//        compatible = "lcdc_drv";
++//        reg = <0x4830e000 0x1000>;  // LCD controller registers
++//        status = "okay";
++//
++//        pinctrl-names = "default";
++//        pinctrl-0 = <&lcd_pins_s0>;
++//
++//        clocks = <&dpll_disp_m2_ck>;
++//        clock-names = "fck";
++//
++//        display-timings {
++//		native-mode = <&timing0>;
++//            timing0: 360x640 {
++//		    	clock-frequency = <25000000>;
++//		    	hactive = <640>;
++//		    	vactive = <360>;
++//		    	hfront-porch = <8>;
++//		    	hback-porch = <4>;
++//		    	hsync-len = <32>;
++//		    	vback-porch = <2>;
++//		    	vfront-porch = <1>;
++//		    	vsync-len = <1>;
++//		    };
++//		};
++//    };
++//
++//    dss: dss@4832a000 {
++//        compatible = "ti,am33xx-dss";
++//        clocks = <&dpll_disp_ck>;
++//        clock-names = "fck";
++//    };
++//};
++
+ 
+ &cpu0_opp_table {
+ 	/*
+diff --git a/arch/arm/boot/dts/am33xx-clocks.dtsi b/arch/arm/boot/dts/am33xx-clocks.dtsi
+index d34483ae1778..2261c220df3b 100644
+--- a/arch/arm/boot/dts/am33xx-clocks.dtsi
++++ b/arch/arm/boot/dts/am33xx-clocks.dtsi
+@@ -638,6 +638,7 @@ l3s_clkctrl: clock@1c {
+ 			clock-output-names = "l3s_clkctrl";
+ 			reg = <0x1c 0x4>, <0x30 0x8>, <0x68 0x4>, <0xf8 0x4>;
+ 			#clock-cells = <2>;
++            status = "okay";
+ 		};
+ 
+ 		l3_clkctrl: clock@24 {
+diff --git a/arch/arm/boot/dts/am33xx.dtsi b/arch/arm/boot/dts/am33xx.dtsi
+index 42f282e55d65..e502c7b321cd 100644
+--- a/arch/arm/boot/dts/am33xx.dtsi
++++ b/arch/arm/boot/dts/am33xx.dtsi
+@@ -369,6 +369,7 @@ usb0: usb@1400 {
+ 				reg = <0x1400 0x400>,
+ 				      <0x1000 0x200>;
+ 				reg-names = "mc", "control";
++				status = "okay";
+ 
+ 				interrupts = <18>;
+ 				interrupt-names = "mc";
+@@ -415,6 +416,7 @@ usb1: usb@1800 {
+ 				compatible = "ti,musb-am33xx";
+ 				reg = <0x1c00 0x400>,
+ 				      <0x1800 0x200>;
++				status = "okay";
+ 				reg-names = "mc", "control";
+ 				interrupts = <19>;
+ 				interrupt-names = "mc";

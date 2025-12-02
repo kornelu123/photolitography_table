@@ -1,3 +1,3 @@
-[submodule "poky"]
-	path = poky
-	url = git://git.yoctoproject.org/poky.git
+[submodule "tisdk"]
+	path = tisdk
+	url = https://git.ti.com/git/arago-project/oe-layersetup.git
