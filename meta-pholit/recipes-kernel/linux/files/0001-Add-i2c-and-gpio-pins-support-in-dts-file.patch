@@ -1,0 +1,177 @@
+From e9e9cc08d5f49c363970c6b35612714f90e0021d Mon Sep 17 00:00:00 2001
+From: j00r <koruddd@gmail.com>
+Date: Wed, 3 Dec 2025 14:28:51 +0000
+Subject: [PATCH] Add i2c and gpio pins support in dts file
+
+---
+ arch/arm/boot/dts/am335x-bone-common.dtsi | 145 +++++++++-------------
+ 1 file changed, 58 insertions(+), 87 deletions(-)
+
+diff --git a/arch/arm/boot/dts/am335x-bone-common.dtsi b/arch/arm/boot/dts/am335x-bone-common.dtsi
+index 04049f8cabde..0bece581c861 100644
+--- a/arch/arm/boot/dts/am335x-bone-common.dtsi
++++ b/arch/arm/boot/dts/am335x-bone-common.dtsi
+@@ -75,38 +75,40 @@ AM33XX_PADCONF(AM335X_PIN_GPMC_A8, PIN_OUTPUT_PULLUP, MUX_MODE7)	/* gpmc_a8.gpio
+ 		>;
+ 	};
+ 
+-    lcdc_pins: lcdc_pins {
+-		pinctrl-single,pins = <
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD8, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad8.lcd_data23 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD9, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad9.lcd_data22 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD10, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad10.lcd_data21 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD11, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad11.lcd_data20 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD12, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad12.lcd_data19 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD13, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad13.lcd_data18 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD14, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad14.lcd_data17 */
+-            AM33XX_PADCONF(AM335X_PIN_GPMC_AD15, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad15.lcd_data16 */
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA0, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA1, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA2, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA3, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA4, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA5, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA6, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA7, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA8, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA9, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA10, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA11, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA12, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA13, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA14, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_DATA15, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_VSYNC, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_HSYNC, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_PCLK, PIN_OUTPUT, MUX_MODE0)
+-            AM33XX_PADCONF(AM335X_PIN_LCD_AC_BIAS_EN, PIN_OUTPUT, MUX_MODE0)
+-        >;
+-    };
++    	lcdc_pins: lcdc_pins {
++    	    	pinctrl-single,pins = <
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD8, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad8.lcd_data23 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD9, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad9.lcd_data22 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD10, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad10.lcd_data21 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD11, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad11.lcd_data20 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD12, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad12.lcd_data19 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD13, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad13.lcd_data18 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD14, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad14.lcd_data17 */
++    	        AM33XX_PADCONF(AM335X_PIN_GPMC_AD15, PIN_OUTPUT, MUX_MODE1)		/* gpmc_ad15.lcd_data16 */
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA0, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA1, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA2, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA3, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA4, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA5, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA6, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA7, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA8, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA9, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA10, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA11, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA12, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA13, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA14, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_DATA15, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_VSYNC, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_HSYNC, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_PCLK, PIN_OUTPUT, MUX_MODE0)
++    	        AM33XX_PADCONF(AM335X_PIN_LCD_AC_BIAS_EN, PIN_OUTPUT, MUX_MODE0)
++		AM33XX_PADCONF(AM335X_PIN_GPMC_A0, PIN_OUTPUT_PULLDOWN, MUX_MODE7)
++		AM33XX_PADCONF(AM335X_PIN_GPMC_CLK, PIN_INPUT, MUX_MODE7)
++    	    >;
++    	};
+ 
+ 	i2c0_pins: pinmux_i2c0_pins {
+ 		pinctrl-single,pins = <
+@@ -264,44 +266,9 @@ &i2c2 {
+ 	status = "okay";
+ 	clock-frequency = <100000>;
+ 
+-	cape_eeprom0: cape_eeprom0@54 {
+-		compatible = "atmel,24c256";
+-		reg = <0x54>;
+-		#address-cells = <1>;
+-		#size-cells = <1>;
+-		cape0_data: cape_data@0 {
+-			reg = <0 0x100>;
+-		};
+-	};
+-
+-	cape_eeprom1: cape_eeprom1@55 {
+-		compatible = "atmel,24c256";
+-		reg = <0x55>;
+-		#address-cells = <1>;
+-		#size-cells = <1>;
+-		cape1_data: cape_data@0 {
+-			reg = <0 0x100>;
+-		};
+-	};
+-
+-	cape_eeprom2: cape_eeprom2@56 {
+-		compatible = "atmel,24c256";
+-		reg = <0x56>;
+-		#address-cells = <1>;
+-		#size-cells = <1>;
+-		cape2_data: cape_data@0 {
+-			reg = <0 0x100>;
+-		};
+-	};
+-
+-	cape_eeprom3: cape_eeprom3@57 {
+-		compatible = "atmel,24c256";
+-		reg = <0x57>;
+-		#address-cells = <1>;
+-		#size-cells = <1>;
+-		cape3_data: cape_data@0 {
+-			reg = <0 0x100>;
+-		};
++	lcdc_dev: lcdc_dev@1B {
++		compatible = "ti,dlp-pico";
++		reg = <0x1B>;
+ 	};
+ };
+ 
+@@ -448,21 +415,25 @@ &lcdc {
+ 	reg = <0x0 0x1000>;
+ 	interrupts = <36>;
+ 	status = "okay";
+-    pinctrl-names = "default";
+-    pinctrl-0 = <&lcdc_pins>;
+-
+-    display-timings {
+-        native-mode = <&timing_lcdc>;
+-        timing_lcdc: 360x640 {
+-        	clock-frequency = <25000000>;
+-        	hactive = <640>;
+-        	vactive = <360>;
+-        	hfront-porch = <32>;
+-        	hback-porch = <32>;
+-        	hsync-len = <64>;
+-        	vback-porch = <32>;
+-        	vfront-porch = <32>;
+-        	vsync-len = <32>;
+-        };
+-    };
++
++    	pinctrl-names = "default";
++    	pinctrl-0 = <&lcdc_pins>;
++
++	proj-en=<&gpio0 16 GPIO_ACTIVE_HIGH>;
++	proj-rdy=<&gpio0 29 GPIO_ACTIVE_LOW>;
++
++    	display-timings {
++    	    	native-mode = <&timing_lcdc>;
++    	    	timing_lcdc: 360x640 {
++    	    		clock-frequency = <25000000>;
++    	    		hactive = <640>;
++    	    		vactive = <360>;
++    	    		hfront-porch = <32>;
++    	    		hback-porch = <32>;
++    	    		hsync-len = <64>;
++    	    		vback-porch = <32>;
++    	    		vfront-porch = <32>;
++    	    		vsync-len = <32>;
++    	    	};
++    	};
+ };

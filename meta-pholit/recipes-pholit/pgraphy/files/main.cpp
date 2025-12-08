@@ -97,44 +97,13 @@ parse_opt(int key, char *arg, struct argp_state *state)
     void
 deinit_all(void)
 {
-    ti_i2c_deinit();
-    ti_gpio_deinit();
+    curtain_evm_on();
     close(fb_fd);
 }
 
     int
 init_all(void)
 {
-    if(ti_gpio_init() < 0)
-    {
-        ti_gpio_deinit();
-        return -1;
-    }
-    dbg_printf("Initialised gpio\n");
-
-    if(ti_init_ctrl_pins() < 0)
-        exit(-1);
-    dbg_printf("Initialised ctrl gpio pins\n");
-
-    if(ti_i2c_init() < 0)
-        exit(-1);
-    dbg_printf("Initialised i2c \n");
-
-    gpiod_line_set_value(ctrl_gpio[PROJ_ON_EXT], 1);
-    dbg_printf("Turning EVM2000 on via PROJ_ON_EXT pin\n");
-
-    clock_t deadline = clock() + EVM2000_PROJ_ON_TIMEOUT_S*CLOCKS_PER_SEC;
-
-    while(gpiod_line_get_value(ctrl_gpio[GPIO_INIT_DONE])) {
-        if (clock() >= deadline) {
-            printf("Initialisation of EVM2000 exceeded %d seconds deadline\n"); 
-            exit(-1);
-        }
-    }
-
-    ti_i2c_init_screen();
-    dbg_printf("Intitialised EVM2000 via i2c\n");
-
     fb_fd = open("/dev/fb0", O_WRONLY);
 
     if (fb_fd == -1) {
@@ -148,7 +117,10 @@ init_all(void)
         deinit_all();
         exit(-1);
     }
+
     dbg_printf("Initialised remote table rpi@%s\n", pgraphy_ctx.args.rpi_path);
+
+    curtain_evm_off();
 
     return 0;
 }

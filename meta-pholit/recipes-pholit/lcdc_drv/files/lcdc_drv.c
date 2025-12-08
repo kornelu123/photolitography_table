@@ -16,6 +16,13 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/lcm.h>
+#include <linux/i2c.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/interrupt.h>
+#include <linux/wait.h>
+#include <linux/sched.h>
+#include <linux/delay.h>
 #include <linux/pinctrl/consumer.h>
 #include <video/of_display_timing.h>
 
@@ -119,10 +126,199 @@
 
 #define DEBUG 1
 #ifdef DEBUG
-    #define DEBUG_PRINTF(fmt, ...) pr_info("[DEBUG] " fmt, ##__VA_ARGS__)
+#define DEBUG_PRINTF(fmt, ...) pr_info("[DEBUG] " fmt, ##__VA_ARGS__)
 #else
-    #define DEBUG_PRINTF(fmt, ...) // Expands to nothing in non-debug builds
+#define DEBUG_PRINTF(fmt, ...) // Expands to nothing in non-debug builds
 #endif
+
+static DECLARE_WAIT_QUEUE_HEAD(gpio_event_wait);
+static int gpio_event_occurred = 0;
+static int irq_number;
+
+static struct gpio_desc *proj_rdy, *proj_en;
+
+static struct i2c_client *i2c_client;
+volatile bool wait_for_i2c = true;
+
+static inline void uint32_to_bytes(uint32_t in, uint8_t *out)
+{
+    out[0] = in & 0xFF000000;
+    out[1] = in & 0x00FF0000;
+    out[2] = in & 0x0000FF00;
+    out[3] = in & 0x000000FF;
+}
+
+    const inline static int
+ti_i2c_read(uint8_t *data, uint8_t data_size, uint8_t addr)
+{
+    uint8_t subaddr[2] = {0x15, addr};
+
+    if (i2c_master_send(i2c_client, subaddr, 2) != 2) {
+        return -1;
+    }
+
+    if (i2c_master_recv(i2c_client, data, data_size) != data_size) {
+        return -1;
+    }
+
+    return 0;
+}
+
+    const inline static int
+ti_i2c_write(uint8_t *data, uint8_t data_size, uint8_t addr)
+{
+    uint8_t data_b[5];
+    data_b[0] = addr;
+
+    for (int i=0; i<data_size; i++) {
+        data_b[i+1] = data[i];
+    }
+
+    DEBUG_PRINTF("Sending 0x%X%X%X%X to %X addr\n", data[0], data[1], data[2], data[3], addr);
+
+    if (i2c_master_send(i2c_client, data_b, data_size + 1) < 0) {
+        return -1;
+    }
+    DEBUG_PRINTF("Sent");
+
+
+    return 0;
+}
+
+const static int ti_i2c_curtain_on(void)
+{
+    uint8_t buf[4];
+    uint32_to_bytes(0x00000001, buf);
+
+    if (ti_i2c_write(buf, 0x04, 0xA6) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+const static int ti_i2c_curtain_off(void)
+{
+    uint8_t buf[4];
+    uint32_to_bytes(0x00000000, buf);
+
+    if (ti_i2c_write(buf, 0x04, 0xA6) < 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int init_dev_i2c(void) {
+    u8 buf[4];
+
+    DEBUG_PRINTF("Bef uint32_to_bytes\n");
+    uint32_to_bytes(0x00000000, buf);
+
+    DEBUG_PRINTF("Bef first ti_i2c_write\n");
+    // Setting parallel input as a input source
+    if (ti_i2c_write(buf, 0x04, 0x0B) < 0) {
+        DEBUG_PRINTF("ti_i2c_write returned error\n");
+        return -1;
+    }
+    DEBUG_PRINTF("Aft first ti_i2c_write\n");
+
+    if (ti_i2c_read(buf, 0x04, 0x03) < 0) {
+        return -1;
+    }
+
+    // Sanity check basically checks the device ID in main status register
+    if (buf[3] != 0x8A) {
+        return -1;
+    }
+
+    // Setting RGB888 as input format
+    uint32_to_bytes(0x00000001, buf);
+    if (ti_i2c_write(buf, 0x04, 0xA3) < 0) {
+        return -1;
+    }
+
+    // Setting RGB888 as input format
+    uint32_to_bytes(0x00000002, buf);
+    if (ti_i2c_write(buf, 0x04, 0x0D) < 0) {
+        return -1;
+    }
+
+    // Set Parallel bus polarity control HSYNC/VSYNC
+    uint32_to_bytes(0x00000000, buf);
+    if (ti_i2c_write(buf, 0x04, 0xA6) < 0) {
+        return -1;
+    }
+
+    // Set landscape nHD resolution
+    uint32_to_bytes(0x0000001B, buf);
+    if (ti_i2c_write(buf, 0x04, 0x0C) < 0) {
+        return -1;
+    }
+
+    // Setting RGB888 as input format
+    uint32_to_bytes(0x00000000, buf);
+    if (ti_i2c_write(buf, 0x04, 0xA3) < 0) {
+        return -1;
+    }
+
+    // Setting RGB888 as input format
+    uint32_to_bytes(0x000004FC, buf);
+    if (ti_i2c_write(buf, 0x04, 0x19) < 0) {
+        return -1;
+    }
+
+    // Locking sequence to VSYNC
+    uint32_to_bytes(0x00000001, buf);
+    if (ti_i2c_write(buf, 0x04, 0x1E) < 0) {
+        return -1;
+    }
+
+    // Setting parallel input as a input source
+    uint32_to_bytes(0x00000000, buf);
+    if (ti_i2c_write(buf, 0x04, 0x0B) < 0) {
+        return -1;
+    }
+
+    ti_i2c_curtain_on();
+
+    return 0;
+}
+
+const static int ti_i2c_off(void)
+{
+    gpiod_set_raw_value(proj_en, 0);
+
+    return 0;
+}
+
+const static int ti_i2c_on(void)
+{
+    gpiod_set_raw_value(proj_en, 1);
+
+    msleep(300);
+
+    init_dev_i2c();
+
+    return 0;
+}
+
+const static int ti_i2c_reset(void)
+{
+    if (ti_i2c_off()) {
+        return -1;
+    }
+
+    return ti_i2c_on();
+}
+
+static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
+{
+    gpio_event_occurred = 1;
+    wake_up_interruptible(&gpio_event_wait);
+
+    return IRQ_HANDLED;
+}
 
 typedef void (*vsync_callback_t)(void *arg);
 
@@ -169,57 +365,37 @@ struct lcd_sync_arg {
     int pulse_width;;
 };
 
-#define FBIOGET_CONTRAST    _IOR('F', 1, int)
-#define FBIOPUT_CONTRAST    _IOW('F', 2, int)
-#define FBIGET_BRIGHTNESS   _IOR('F', 3, int)
-#define FBIPUT_BRIGHTNESS   _IOW('F', 3, int)
-#define FBIGET_COLOR        _IOR('F', 5, int)
-#define FBIPUT_COLOR        _IOW('F', 6, int)
-#define FBIPUT_HSYNC        _IOW('F', 9, int)
-#define FBIPUT_VSYNC        _IOW('F', 10, int)
-
-struct lcdc_encoder {
-    struct list_head list;
-    struct i2c_client *client;
-
-    void *priv;
-
-    void (*set_mode) (struct lcdc_encoder *encoder, struct fb_videomode *panel);
-
-    struct device_node *node;
-};
-
 struct lcdc_fb_data {
-     struct device       *dev;
-     resource_size_t p_palette_base;
-     unsigned char *v_palette_base;
-     dma_addr_t      vram_phys;
-     unsigned long       vram_size;
-     void            *vram_virt;
-     unsigned int        dma_start;
-     unsigned int        dma_end;
-     struct clk *lcdc_clk;
-     int irq;
-     unsigned int palette_sz;
-     int blank;
-     wait_queue_head_t   vsync_wait;
-     int         vsync_flag;
-     int         vsync_timeout;
-     spinlock_t      lock_for_chan_update;
+    struct device       *dev;
+    resource_size_t p_palette_base;
+    unsigned char *v_palette_base;
+    dma_addr_t      vram_phys;
+    unsigned long       vram_size;
+    void            *vram_virt;
+    unsigned int        dma_start;
+    unsigned int        dma_end;
+    struct clk *lcdc_clk;
+    int irq;
+    unsigned int palette_sz;
+    int blank;
+    wait_queue_head_t   vsync_wait;
+    int         vsync_flag;
+    int         vsync_timeout;
+    spinlock_t      lock_for_chan_update;
 
-     wait_queue_head_t   palette_wait;
-     int         palette_loaded_flag;
+    wait_queue_head_t   palette_wait;
+    int         palette_loaded_flag;
 
-     unsigned int        which_dma_channel_done;
- #ifdef CONFIG_CPU_FREQ
-     struct notifier_block   freq_transition;
- #endif
-     unsigned int        lcdc_clk_rate;
-     void (*panel_power_ctrl)(int);
-     u32 pseudo_palette[16];
-     struct fb_videomode mode;
-     struct lcd_ctrl_config  cfg;
-     struct device_node *hdmi_node;
+    unsigned int        which_dma_channel_done;
+#ifdef CONFIG_CPU_FREQ
+    struct notifier_block   freq_transition;
+#endif
+    unsigned int        lcdc_clk_rate;
+    void (*panel_power_ctrl)(int);
+    u32 pseudo_palette[16];
+    struct fb_videomode mode;
+    struct lcd_ctrl_config  cfg;
+    struct device_node *hdmi_node;
 };
 
 struct lcdc_platform_data {
@@ -314,61 +490,62 @@ static void lcdc_disable_raster(enum lcdc_frame_complete wait_for_frame_done)
         lcdc_write(reg & ~LCD_RASTER_ENABLE, LCD_RASTER_CTRL_REG);
     }
 
-         if ((wait_for_frame_done == LCDC_FRAME_WAIT) &&
-             (lcd_rev == LCD_VERSION_2)) {
-         frame_done_flag = 0;
-         int ret = wait_event_interruptible_timeout(frame_done_wq,
-                 frame_done_flag != 0,
-                 msecs_to_jiffies(50));
-         if (ret == 0)
-             pr_err("LCD Controller timed out\n");
-     }
-}
-
-static void lcdc_blit(int load_mode, struct lcdc_fb_data *par)
-{
-    u32 start;
-    u32 end;
-    u32 reg_ras;
-    u32 reg_dma;
-    u32 reg_int;
-
-    reg_ras = lcdc_read(LCD_RASTER_CTRL_REG);
-    reg_ras &= ~(3 << 20);
-
-    reg_dma = lcdc_read(LCD_DMA_CTRL_REG);
-
-    if (load_mode == LOAD_DATA) {
-        start   = par->dma_start;
-        end     = par->dma_end;
-
-        reg_ras |= LCD_PALETTE_LOAD_MODE(DATA_ONLY);
-
-        if (lcd_rev == LCD_VERSION_1) {
-            reg_dma |= LCD_V1_END_OF_FRAME_INT_ENA;
-        } else {
-            reg_int = lcdc_read(LCD_INT_ENABLE_SET_REG) |
-                            LCD_V2_END_OF_FRAME0_INT_ENA |
-                            LCD_V2_END_OF_FRAME1_INT_ENA |
-                            LCD_FRAME_DONE | LCD_SYNC_LOST;
-            lcdc_write(reg_int, LCD_INT_ENABLE_SET_REG);
-        }
-
-        reg_dma |= LCD_DUAL_FRAME_BUFFER_ENABLE;
-
-        lcdc_write(start, LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
-        lcdc_write(end, LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
-        lcdc_write(start, LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
-        lcdc_write(end, LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
-    } else if ( load_mode == LOAD_PALETTE){
-        // TODO: add palette mode
+    if ((wait_for_frame_done == LCDC_FRAME_WAIT) &&
+            (lcd_rev == LCD_VERSION_2)) {
+        frame_done_flag = 0;
+        int ret = wait_event_interruptible_timeout(frame_done_wq,
+                frame_done_flag != 0,
+                msecs_to_jiffies(50));
+        if (ret == 0)
+            pr_err("LCD Controller timed out\n");
     }
-
-    lcdc_write(reg_dma, LCD_DMA_CTRL_REG);
-    lcdc_write(reg_ras, LCD_RASTER_CTRL_REG);
-
-    lcdc_enable_raster();
 }
+
+// Not used rn
+//static void lcdc_blit(int load_mode, struct lcdc_fb_data *par)
+//{
+//    u32 start;
+//    u32 end;
+//    u32 reg_ras;
+//    u32 reg_dma;
+//    u32 reg_int;
+//
+//    reg_ras = lcdc_read(LCD_RASTER_CTRL_REG);
+//    reg_ras &= ~(3 << 20);
+//
+//    reg_dma = lcdc_read(LCD_DMA_CTRL_REG);
+//
+//    if (load_mode == LOAD_DATA) {
+//        start   = par->dma_start;
+//        end     = par->dma_end;
+//
+//        reg_ras |= LCD_PALETTE_LOAD_MODE(DATA_ONLY);
+//
+//        if (lcd_rev == LCD_VERSION_1) {
+//            reg_dma |= LCD_V1_END_OF_FRAME_INT_ENA;
+//        } else {
+//            reg_int = lcdc_read(LCD_INT_ENABLE_SET_REG) |
+//                LCD_V2_END_OF_FRAME0_INT_ENA |
+//                LCD_V2_END_OF_FRAME1_INT_ENA |
+//                LCD_FRAME_DONE | LCD_SYNC_LOST;
+//            lcdc_write(reg_int, LCD_INT_ENABLE_SET_REG);
+//        }
+//
+//        reg_dma |= LCD_DUAL_FRAME_BUFFER_ENABLE;
+//
+//        lcdc_write(start, LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
+//        lcdc_write(end, LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
+//        lcdc_write(start, LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
+//        lcdc_write(end, LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
+//    } else if ( load_mode == LOAD_PALETTE){
+//        // TODO: add palette mode
+//    }
+//
+//    lcdc_write(reg_dma, LCD_DMA_CTRL_REG);
+//    lcdc_write(reg_ras, LCD_RASTER_CTRL_REG);
+//
+//    lcdc_enable_raster();
+//}
 
 static void lcdc_load_palette(struct lcdc_fb_data *par)
 {
@@ -421,7 +598,7 @@ static void lcd_cfg_horizontal_sync(int back_porch, int pulse_width, int front_p
     u32 reg;
 
     DEBUG_PRINTF("Horizontal back_porch:%u, pulse_width:%u, front_porch:%u\n", 
-                  back_porch, pulse_width, front_porch);
+            back_porch, pulse_width, front_porch);
 
     reg = lcdc_read(LCD_RASTER_TIMING_0_REG) & 0xF;
     reg |= (((back_porch-1) & 0xFF) << 24)
@@ -443,7 +620,7 @@ static int lcd_cfg_vertical_sync(int back_porch, int pulse_width, int front_porc
     u32 reg;
 
     DEBUG_PRINTF("Vertical back_porch:%u, pulse_width:%u, front_porch:%u\n", 
-                  back_porch, pulse_width, front_porch);
+            back_porch, pulse_width, front_porch);
     reg = lcdc_read(LCD_RASTER_TIMING_1_REG) & 0x3FF;
     reg |= ((back_porch & 0xFF) << 24)
         | ((front_porch & 0xFF) << 16)
@@ -459,8 +636,8 @@ static int lcd_cfg_display(const struct lcd_ctrl_config *cfg, struct fb_videomod
     u32 reg_int;
 
     reg = lcdc_read(LCD_RASTER_CTRL_REG) & ~(LCD_TFT_MODE 
-                                        | LCD_MONO_8BIT_MODE 
-                                        | LCD_MONOCHROME_MODE);
+            | LCD_MONO_8BIT_MODE 
+            | LCD_MONOCHROME_MODE);
 
     switch (cfg->panel_shade) {
         case MONOCHROME:
@@ -524,7 +701,7 @@ static int lcd_cfg_display(const struct lcd_ctrl_config *cfg, struct fb_videomod
 }
 
 static int lcd_cfg_frame_buffer(struct lcdc_fb_data *par, u32 width, u32 height,
-                                u32 bpp, u32 raster_order)
+        u32 bpp, u32 raster_order)
 {
     u32 reg;
 
@@ -532,7 +709,7 @@ static int lcd_cfg_frame_buffer(struct lcdc_fb_data *par, u32 width, u32 height,
         return -EINVAL;
     }
 
-    DEBUG_PRINTF("width_pre:%lu\n", width);
+    DEBUG_PRINTF("width_pre:%u\n", width);
 
     if (lcd_rev == LCD_VERSION_1) {
         width &= 0x3F0;
@@ -540,7 +717,7 @@ static int lcd_cfg_frame_buffer(struct lcdc_fb_data *par, u32 width, u32 height,
         width &= 0x7F0;
     }
 
-    DEBUG_PRINTF("width_post:%lu\n", width);
+    DEBUG_PRINTF("width_post:%u\n", width);
 
     reg = lcdc_read(LCD_RASTER_TIMING_0_REG);
     reg &= 0xFFFFFC00;
@@ -603,7 +780,7 @@ static int lcd_cfg_frame_buffer(struct lcdc_fb_data *par, u32 width, u32 height,
 
 #define CNVT_TOHW(val, width) ((((val) << (width)) + 0x7FFF - (val)) >> 16)
 static int fb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned blue,
-                        unsigned transp, struct fb_info *info)
+        unsigned transp, struct fb_info *info)
 {
     struct lcdc_fb_data *par = info->par;
     unsigned short *palette = (unsigned short *)par->v_palette_base;
@@ -621,7 +798,7 @@ static int fb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned b
     if (info->var.bits_per_pixel > 16 && lcd_rev == LCD_VERSION_1) {
         return -EINVAL;
     }
-    
+
     switch (info->fix.visual) {
         case FB_VISUAL_TRUECOLOR:
             red = CNVT_TOHW(red, info->var.red.length);
@@ -663,9 +840,9 @@ static int fb_setcolreg(unsigned regno, unsigned red, unsigned green, unsigned b
                         update_hw = 1;
                         palette[regno] = pal;
                     }
-                break;
+                    break;
             }
-        break;
+            break;
     }
 
     if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
@@ -714,37 +891,38 @@ static void lcdc_fb_lcd_reset(void)
     }
 }
 
-static int lcdc_fb_config_clk_divider(struct lcdc_fb_data *par,
-                          unsigned lcdc_clk_div,
-                          unsigned lcdc_clk_rate)
-{
-    int ret;
-
-    if (par->lcdc_clk_rate != lcdc_clk_rate) {
-        ret = clk_set_rate(par->lcdc_clk, lcdc_clk_rate);
-        if (IS_ERR_VALUE(ret)) {
-            dev_err(par->dev,
-                "unable to set clock rate at %u\n",
-                lcdc_clk_rate);
-            return ret;
-        }
-        par->lcdc_clk_rate = clk_get_rate(par->lcdc_clk);
-    }
-
-    /* Configure the LCD clock divisor. */
-    lcdc_write(LCD_CLK_DIVISOR(lcdc_clk_div) |
-            (LCD_RASTER_MODE & 0x1), LCD_CTRL_REG);
-
-    if (lcd_rev == LCD_VERSION_2)
-        lcdc_write(LCD_V2_DMA_CLK_EN | LCD_V2_LIDD_CLK_EN |
-                LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
-
-    return 0;
-}
-
+// Not used rn
+//static int lcdc_fb_config_clk_divider(struct lcdc_fb_data *par,
+//        unsigned lcdc_clk_div,
+//        unsigned lcdc_clk_rate)
+//{
+//    int ret;
+//
+//    if (par->lcdc_clk_rate != lcdc_clk_rate) {
+//        ret = clk_set_rate(par->lcdc_clk, lcdc_clk_rate);
+//        if (IS_ERR_VALUE(ret)) {
+//            dev_err(par->dev,
+//                    "unable to set clock rate at %u\n",
+//                    lcdc_clk_rate);
+//            return ret;
+//        }
+//        par->lcdc_clk_rate = clk_get_rate(par->lcdc_clk);
+//    }
+//
+//    /* Configure the LCD clock divisor. */
+//    lcdc_write(LCD_CLK_DIVISOR(lcdc_clk_div) |
+//            (LCD_RASTER_MODE & 0x1), LCD_CTRL_REG);
+//
+//    if (lcd_rev == LCD_VERSION_2)
+//        lcdc_write(LCD_V2_DMA_CLK_EN | LCD_V2_LIDD_CLK_EN |
+//                LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
+//
+//    return 0;
+//}
+//
 static unsigned int lcdc_fb_calc_clk_divider(struct lcdc_fb_data *par,
-                                             unsigned pixclock,
-                                             unsigned *lcdc_clk_rate)
+        unsigned pixclock,
+        unsigned *lcdc_clk_rate)
 {
     unsigned lcdc_clk_div;
 
@@ -753,15 +931,15 @@ static unsigned int lcdc_fb_calc_clk_divider(struct lcdc_fb_data *par,
 
     *lcdc_clk_rate = par->lcdc_clk_rate;
 
-    DEBUG_PRINTF("pixclock0: %lu, clock_rate: %lu\n", pixclock, *lcdc_clk_rate);
+    DEBUG_PRINTF("pixclock0: %u, clock_rate: %u\n", pixclock, *lcdc_clk_rate);
 
     if (pixclock < (*lcdc_clk_rate / CLK_MAX_DIV)) {
         *lcdc_clk_rate = clk_round_rate(par->lcdc_clk,
-                                        pixclock * CLK_MAX_DIV);
+                pixclock * CLK_MAX_DIV);
         lcdc_clk_div = CLK_MAX_DIV;
     } else if (pixclock > (*lcdc_clk_rate / CLK_MIN_DIV)) {
         *lcdc_clk_rate = clk_round_rate(par->lcdc_clk,
-                                        pixclock * CLK_MIN_DIV);
+                pixclock * CLK_MIN_DIV);
         lcdc_clk_div = CLK_MIN_DIV;
     } else {
         lcdc_clk_div = *lcdc_clk_rate / pixclock;
@@ -771,7 +949,7 @@ static unsigned int lcdc_fb_calc_clk_divider(struct lcdc_fb_data *par,
 }
 
 static int lcdc_fb_calc_config_clk_divider(struct lcdc_fb_data *par,
-                                          struct fb_videomode *mode)
+        struct fb_videomode *mode)
 {
     unsigned long lcdc_clk_rate;
     unsigned long target_pixclock = PICOS2KHZ(mode->pixclock) * 1000;
@@ -797,14 +975,14 @@ static int lcdc_fb_calc_config_clk_divider(struct lcdc_fb_data *par,
 
     if (lcd_rev == LCD_VERSION_2) {
         lcdc_write(LCD_V2_DMA_CLK_EN | LCD_V2_LIDD_CLK_EN |
-                  LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
+                LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
     }
 
     return 0;
 }
 
 static unsigned lcdc_fb_round_clk(struct lcdc_fb_data *par,
-                                  unsigned pixclock)
+        unsigned pixclock)
 {
     unsigned lcdc_clk_div, lcdc_clk_rate;
 
@@ -813,11 +991,10 @@ static unsigned lcdc_fb_round_clk(struct lcdc_fb_data *par,
 }
 
 static int lcd_init(struct lcdc_fb_data *par,
-                    const struct lcd_ctrl_config *cfg, struct fb_videomode *panel)
+        const struct lcd_ctrl_config *cfg, struct fb_videomode *panel)
 {
     u32 bpp;
     int ret = 0;
-    struct lcdc_encoder *enc = NULL;
 
     if (par->hdmi_node) {
         const unsigned clkdiv = 2;
@@ -839,14 +1016,14 @@ static int lcd_init(struct lcdc_fb_data *par,
         pixclock = par->lcdc_clk_rate / clkdiv;
 
         lcdc_write(LCD_CLK_DIVISOR(clkdiv) | 
-                  (LCD_RASTER_MODE & 0x1), LCD_CTRL_REG);
+                (LCD_RASTER_MODE & 0x1), LCD_CTRL_REG);
 
         if (lcd_rev == LCD_VERSION_2) {
             lcdc_write(LCD_V2_DMA_CLK_EN | LCD_V2_LIDD_CLK_EN |
-                       LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
+                    LCD_V2_CORE_CLK_EN, LCD_CLK_ENABLE_REG);
         }
     } else {
-        DEBUG_PRINTF("pixclock: %lu\n", panel->pixclock);
+        DEBUG_PRINTF("pixclock: %u\n", panel->pixclock);
 
         ret = lcdc_fb_calc_config_clk_divider(par, panel);
 
@@ -860,8 +1037,8 @@ static int lcd_init(struct lcdc_fb_data *par,
     //    lcdc_write((lcdc_read(LCD_RASTER_TIMING_2_REG) |
     //                LCD_INVERT_PIXEL_CLOCK), LCD_RASTER_TIMING_2_REG);
     //} else {
-        lcdc_write((lcdc_read(LCD_RASTER_TIMING_2_REG) &
-                    ~LCD_INVERT_PIXEL_CLOCK), LCD_RASTER_TIMING_2_REG);
+    lcdc_write((lcdc_read(LCD_RASTER_TIMING_2_REG) &
+                ~LCD_INVERT_PIXEL_CLOCK), LCD_RASTER_TIMING_2_REG);
     //}
 
     ret = lcd_cfg_dma(cfg->dma_burst_sz, cfg->fifo_th);
@@ -873,25 +1050,25 @@ static int lcd_init(struct lcdc_fb_data *par,
             panel->lower_margin);
     lcd_cfg_horizontal_sync(panel->left_margin, panel->hsync_len,
             panel->right_margin);
-    
+
     ret = lcd_cfg_display(cfg, panel);
     if (ret < 0)
         return ret;
-    
+
     bpp = cfg->bpp;
-    
+
     if (bpp == 12)
         bpp = 16;
     ret = lcd_cfg_frame_buffer(par, (unsigned int)panel->xres,
-                (unsigned int)panel->yres, bpp,
-                cfg->raster_order);
+            (unsigned int)panel->yres, bpp,
+            cfg->raster_order);
     if (ret < 0)
         return ret;
-    
+
     lcdc_load_palette(par);
-    
+
     lcdc_write((lcdc_read(LCD_RASTER_CTRL_REG) & 0xfff00fff) |
-               (cfg->fdd << 12), LCD_RASTER_CTRL_REG);
+            (cfg->fdd << 12), LCD_RASTER_CTRL_REG);
 
     return 0;
 }
@@ -946,9 +1123,9 @@ static irqreturn_t lcdc_irq_handler_rev02(int irq, void *arg)
         if (stat & LCD_END_OF_FRAME0) {
             par->which_dma_channel_done = 0;
             lcdc_write(par->dma_start,
-                       LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
+                    LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
             lcdc_write(par->dma_end,
-                       LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
+                    LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
             par->vsync_flag = 1;
 
             wake_up_interruptible(&par->vsync_wait);
@@ -960,9 +1137,9 @@ static irqreturn_t lcdc_irq_handler_rev02(int irq, void *arg)
         if (stat & LCD_END_OF_FRAME1) {
             par->which_dma_channel_done = 1;
             lcdc_write(par->dma_start,
-                       LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
+                    LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
             lcdc_write(par->dma_end,
-                       LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
+                    LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
             par->vsync_flag = 1;
 
             wake_up_interruptible(&par->vsync_wait);
@@ -1003,19 +1180,19 @@ static irqreturn_t lcdc_irq_handler_rev01(int irq, void *arg)
         if (stat & LCD_END_OF_FRAME0) {
             par->which_dma_channel_done = 0;
             lcdc_write(par->dma_start,
-                   LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
+                    LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
             lcdc_write(par->dma_end,
-                   LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
+                    LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
             par->vsync_flag = 1;
             wake_up_interruptible(&par->vsync_wait);
         }
-        
+
         if (stat & LCD_END_OF_FRAME1) {
             par->which_dma_channel_done = 1;
             lcdc_write(par->dma_start,
-                   LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
+                    LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
             lcdc_write(par->dma_end,
-                   LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
+                    LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
             par->vsync_flag = 1;
             wake_up_interruptible(&par->vsync_wait);
         }
@@ -1025,7 +1202,7 @@ static irqreturn_t lcdc_irq_handler_rev01(int irq, void *arg)
 }
 
 static int fb_check_var(struct fb_var_screeninfo *var,
-                        struct fb_info *info)
+        struct fb_info *info)
 {
     int err = 0;
     struct lcdc_fb_data *par = info->par;
@@ -1145,10 +1322,10 @@ static int fb_remove(struct platform_device *dev)
         fb_dealloc_cmap(&info->cmap);
 
         dma_free_coherent(NULL, PALETTE_SIZE, 
-                          par->v_palette_base, par->p_palette_base);
+                par->v_palette_base, par->p_palette_base);
         dma_free_coherent(NULL, par->vram_size, 
-                          par->vram_virt, par->vram_phys);
-        
+                par->vram_virt, par->vram_phys);
+
         pm_runtime_put_sync(&dev->dev);
         pm_runtime_disable(&dev->dev);
         framebuffer_release(info);
@@ -1164,8 +1341,8 @@ static int fb_wait_for_vsync(struct fb_info *info)
 
     par->vsync_flag = 0;
     ret = wait_event_interruptible_timeout(par->vsync_wait,
-                                           par->vsync_flag != 0,
-                                           par->vsync_timeout);
+            par->vsync_flag != 0,
+            par->vsync_timeout);
 
     if (ret < 0) {
         return ret;
@@ -1177,9 +1354,11 @@ static int fb_wait_for_vsync(struct fb_info *info)
 }
 
 static int fb_ioctl(struct fb_info *info, unsigned int cmd,
-                    unsigned long arg)
+        unsigned long arg)
 {
     struct lcd_sync_arg sync_arg;
+
+    DEBUG_PRINTF("[IOCTL]: Got %x Argument\n", cmd);
 
     switch (cmd) {
         case FBIOGET_CONTRAST:
@@ -1191,27 +1370,43 @@ static int fb_ioctl(struct fb_info *info, unsigned int cmd,
             return -ENOTTY;
         case FBIPUT_HSYNC:
             if (copy_from_user(&sync_arg, (void __user *)arg,
-                               sizeof(struct lcd_sync_arg))) {
+                        sizeof(struct lcd_sync_arg))) {
                 return -EFAULT;
             }
 
             lcd_cfg_horizontal_sync(sync_arg.back_porch,
-                                    sync_arg.pulse_width,
-                                    sync_arg.front_porch);
+                    sync_arg.pulse_width,
+                    sync_arg.front_porch);
             break;
         case FBIPUT_VSYNC:
             if (copy_from_user(&sync_arg, (void __user *)arg,
-                               sizeof(struct lcd_sync_arg))) {
+                        sizeof(struct lcd_sync_arg))) {
                 return -EFAULT;
             }
 
             lcd_cfg_vertical_sync(sync_arg.back_porch,
-                                    sync_arg.pulse_width,
-                                    sync_arg.front_porch);
+                    sync_arg.pulse_width,
+                    sync_arg.front_porch);
             break;
         case FBIO_WAITFORVSYNC:
             return fb_wait_for_vsync(info);
+        case FB_BLACKOUT:
+            DEBUG_PRINTF("Got FB_BLACKOUT\n");
+            return ti_i2c_curtain_on();
+        case FB_RESTORE:
+            DEBUG_PRINTF("Got FB_RESTORE\n");
+            return ti_i2c_curtain_off();
+        case FB_OFF:
+            DEBUG_PRINTF("Got FB_OFF\n");
+            return ti_i2c_off();
+        case FB_ON:
+            DEBUG_PRINTF("Got FB_ON\n");
+            return ti_i2c_on();
+        case FB_RESET:
+            DEBUG_PRINTF("Got FB_RESET\n");
+            return ti_i2c_reset();
         default:
+            DEBUG_PRINTF("Got random shit, -EINVAL\n");
             return -EINVAL;
     }
 
@@ -1256,7 +1451,7 @@ static int cfb_blank(int blank, struct fb_info *info)
 }
 
 static int lcdc_pan_display(struct fb_var_screeninfo *var,
-                            struct fb_info *fbi)
+        struct fb_info *fbi)
 {
     int ret = 0;
     struct fb_var_screeninfo new_var;
@@ -1267,7 +1462,7 @@ static int lcdc_pan_display(struct fb_var_screeninfo *var,
     unsigned long irq_flags;
 
     if (var->xoffset != fbi->var.xoffset ||
-        var->yoffset != fbi->var.yoffset) {
+            var->yoffset != fbi->var.yoffset) {
 
         memcpy(&new_var, &fbi->var, sizeof(new_var));
         new_var.xoffset = var->xoffset;
@@ -1286,22 +1481,22 @@ static int lcdc_pan_display(struct fb_var_screeninfo *var,
             par->dma_end    = end;
 
             spin_lock_irqsave(&par->lock_for_chan_update,
-                             irq_flags);
+                    irq_flags);
 
             if (par->which_dma_channel_done == 0) {
                 lcdc_write(par->dma_start,
-                           LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
+                        LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
                 lcdc_write(par->dma_end,
-                           LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
+                        LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
             } else if (par->which_dma_channel_done == 1) {
                 lcdc_write(par->dma_start,
-                           LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
+                        LCD_DMA_FRM_BUF_BASE_ADDR_1_REG);
                 lcdc_write(par->dma_end,
-                           LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
+                        LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG);
             }
 
             spin_unlock_irqrestore(&par->lock_for_chan_update,
-                                   irq_flags);
+                    irq_flags);
         }
     }
 
@@ -1312,10 +1507,7 @@ static int lcdc_set_par(struct fb_info *info)
 {
     struct lcdc_fb_data *par = info->par;
     int ret;
-    struct device_node *np = par->dev->of_node;
     bool raster = lcdc_is_raster_enabled();
-    struct device_node *timings_np, *native_np;
-    u32 clock_freq;
 
     if (raster) {
         lcdc_disable_raster(LCDC_FRAME_WAIT);
@@ -1328,7 +1520,7 @@ static int lcdc_set_par(struct fb_info *info)
     par->cfg.bpp = info->var.bits_per_pixel;
 
     info->fix.visual = (par->cfg.bpp <= 8) ?
-                        FB_VISUAL_PSEUDOCOLOR : FB_VISUAL_TRUECOLOR;
+        FB_VISUAL_PSEUDOCOLOR : FB_VISUAL_TRUECOLOR;
     info->fix.line_length = (par->mode.xres * par->cfg.bpp) / 8;
 
     ret = lcd_init(par, &par->cfg, &par->mode);
@@ -1339,10 +1531,10 @@ static int lcdc_set_par(struct fb_info *info)
     }
 
     par->dma_start = info->fix.smem_start +
-                     info->var.yoffset * info->fix.line_length +
-                     info->var.xoffset * info->var.bits_per_pixel / 8;
+        info->var.yoffset * info->fix.line_length +
+        info->var.xoffset * info->var.bits_per_pixel / 8;
     par->dma_end   = par->dma_start + 
-                     info->var.yres * info->fix.line_length - 1;
+        info->var.yres * info->fix.line_length - 1;
 
     lcdc_write(par->dma_start, LCD_DMA_FRM_BUF_BASE_ADDR_0_REG);
     lcdc_write(par->dma_end, LCD_DMA_FRM_BUF_CEILING_ADDR_0_REG);
@@ -1389,6 +1581,35 @@ static struct lcd_ctrl_config *lcdc_fb_create_cfg(struct platform_device *dev)
     return cfg;
 }
 
+static int get_gpio(struct platform_device *dev)
+{
+    proj_en = gpio_to_desc(0 + 16);
+    if (!proj_en) {
+        dev_err(&(dev->dev), "Error getting pin 16 (PROJ_EN)");
+        return -1;
+    }
+
+    proj_rdy = gpio_to_desc(0 + 29);
+    if (!proj_rdy) {
+        dev_err(&(dev->dev), "Error getting pin 29 (PROJ_RDY)");
+        return -1;
+    }
+
+    int status = gpiod_direction_output(proj_en, 1);
+    if (status) {
+        dev_err(&(dev->dev), "Error setting pin 16 (PROJ_EN) as output");
+        return -1;
+    }
+
+    status = gpiod_direction_input(proj_rdy);
+    if (status) {
+        dev_err(&(dev->dev), "Error setting pin 29 (PROJ_RDY) as input");
+        return -1;
+    }
+
+    return 0;
+}
+
 static struct fb_videomode *lcdc_fb_get_videomode(struct platform_device *dev)
 {
     struct lcdc_platform_data *fb_pdata = dev->dev.platform_data;
@@ -1398,8 +1619,8 @@ static struct fb_videomode *lcdc_fb_get_videomode(struct platform_device *dev)
 
     if (np) {
         lcdc_info = devm_kzalloc(&dev->dev,
-                                 sizeof(struct fb_videomode),
-                                 GFP_KERNEL);
+                sizeof(struct fb_videomode),
+                GFP_KERNEL);
 
         if (!lcdc_info) {
             return NULL;
@@ -1423,7 +1644,7 @@ static struct fb_videomode *lcdc_fb_get_videomode(struct platform_device *dev)
         return NULL;
     }
 
-    dev_info(&dev->dev, "found %s panel\n", lcdc_info->name);
+    DEBUG_PRINTF("found %s panel\n", lcdc_info->name);
 
     return lcdc_info;
 }
@@ -1447,14 +1668,14 @@ static int fb_probe(struct platform_device *device)
     lcdc_fb_var.pixclock = 15000000; // TODO change this to read from devicetree
 
     DEBUG_PRINTF("In fb probe\n");
-    
+
     // Get the pinctrl
     pinctrl = devm_pinctrl_get(&device->dev);
     if (IS_ERR(pinctrl)) {
         dev_err(&device->dev, "Failed to get pinctrl\n");
         return PTR_ERR(pinctrl);
     }
-    
+
     // Get the default state
     default_state = pinctrl_lookup_state(pinctrl, "default");
     if (IS_ERR(default_state)) {
@@ -1462,7 +1683,7 @@ static int fb_probe(struct platform_device *device)
         devm_pinctrl_put(pinctrl);
         return PTR_ERR(default_state);
     }
-    
+
     // Apply the default state
     ret = pinctrl_select_state(pinctrl, default_state);
     if (ret < 0) {
@@ -1483,8 +1704,8 @@ static int fb_probe(struct platform_device *device)
     }
 
     DEBUG_PRINTF("lcdc_info @ %p (xres=%d, yres=%d)\n",
-         lcdc_info, lcdc_info ? lcdc_info->xres : -1,
-         lcdc_info ? lcdc_info->yres : -1);
+            lcdc_info, lcdc_info ? lcdc_info->xres : -1,
+            lcdc_info ? lcdc_info->yres : -1);
 
     // Replace the current mapping code with:
     lcdc_regs = platform_get_resource(device, IORESOURCE_MEM, 0);
@@ -1503,7 +1724,7 @@ static int fb_probe(struct platform_device *device)
 
     ocp_reg_base = ioremap(0x4C000000, 0x1000);
     unsigned int data_ocp = readl(ocp_reg_base + 0x54);
-    writel(data_ocp & 0xFF000000 | 0xFFFF00, ocp_reg_base + 0x54);
+    writel(((data_ocp & 0xFF000000) | 0xFFFF00), ocp_reg_base + 0x54);
 
     DEBUG_PRINTF("lcdc_fb_reg_base @%px (phys 0x%08lx)\n",
             lcdc_fb_reg_base, (unsigned long)lcdc_regs->start);
@@ -1606,7 +1827,7 @@ static int fb_probe(struct platform_device *device)
     par->dma_end                = par->dma_start + 
         lcdc_info->yres * lcdc_fb_fix.line_length -1;
 
-    DEBUG_PRINTF("Start: %px, end: %px\n", par->dma_start, par->dma_end);
+    DEBUG_PRINTF("Start: %X, end: %X\n", par->dma_start, par->dma_end);
 
     par->v_palette_base         = dma_alloc_coherent(par->dev, PALETTE_SIZE,
             (resource_size_t *)&par->p_palette_base,
@@ -1678,10 +1899,42 @@ static int fb_probe(struct platform_device *device)
         goto err_dealloc_cmap;
     }
 
-    DEBUG_PRINTF("vram_size:%lu, dma_start:%px, dma_end:%px\n"
-                  "bpp:%lu\n, clock_rate:%lu", par->vram_size, par->dma_start, par->dma_end,
-                  par->cfg.bpp, par->lcdc_clk_rate);
+    DEBUG_PRINTF("vram_size:%lu, dma_start:%X, dma_end:%X\n"
+            "bpp:%u\n, clock_rate:%u", par->vram_size, par->dma_start, par->dma_end,
+            par->cfg.bpp, par->lcdc_clk_rate);
+
     lcdc_enable_raster();
+
+    DEBUG_PRINTF("Raster enabled\n");
+
+    ret = get_gpio(device);
+    DEBUG_PRINTF("gpio gotten\n");
+
+    if (ret) {
+        dev_err(&device->dev, "Failed to get GPIOs, continuing without projector support\n");
+        goto err_dealloc_cmap;
+    }
+    
+    irq_number = gpio_to_irq(29);
+    DEBUG_PRINTF("gpio irq gotten\n");
+
+    ret = request_irq(irq_number, gpio_irq_handler,
+                          IRQF_TRIGGER_FALLING,
+                          "proj_on_irq", NULL);
+    DEBUG_PRINTF("irq request gotten\n");
+
+    DEBUG_PRINTF("Waiting for i2c init\n");
+    while (wait_for_i2c);
+
+    DEBUG_PRINTF("Bef sleep\n");
+    msleep(300);
+    DEBUG_PRINTF("Aft sleep\n");
+
+    // Now safe to initialize the projector
+    if (init_dev_i2c() < 0) {
+        dev_err(&device->dev, "Failed to initialize DLP projector\n");
+        return -EIO;
+    }
 
     return 0;
 
@@ -1711,11 +1964,11 @@ static int fb_resume(struct platform_device *pdev)
 {
     struct fb_info *info = dev_get_drvdata(&pdev->dev);
     struct lcdc_fb_data *par = info->par;
-    
+
     clk_prepare_enable(par->lcdc_clk);
     if (par->panel_power_ctrl)
         par->panel_power_ctrl(1);
-    
+
     lcdc_enable_raster();
     return 0;
 }
@@ -1753,14 +2006,62 @@ static struct platform_driver lcdc_fb_driver = {
     },
 };
 
-static int __init lcdc_fb_init(void)
-{
-    return platform_driver_register(&lcdc_fb_driver);
-}
-
 static void __exit lcdc_fb_cleanup(void)
 {
     platform_driver_unregister(&lcdc_fb_driver);
+}
+
+// Add global (or static) pointer
+static struct i2c_client *i2c_client;
+
+// Add this function — this will be called when I2C device is found
+static int dlp_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+    i2c_client = client;
+    DEBUG_PRINTF("DLP I2C controller found at 0x%02x\n", client->addr);
+
+    wait_for_i2c = false;
+
+    return 0;
+}
+
+static void dlp_remove(struct i2c_client *client)
+{
+    i2c_client = NULL;
+}
+
+// I2C driver definition
+static const struct i2c_device_id dlp_idtable[] = {
+    { "dlp-pico", 0 },
+    { }
+};
+MODULE_DEVICE_TABLE(i2c, dlp_idtable);
+
+static const struct of_device_id dlp_of_match[] = {
+    { .compatible = "ti,dlp-pico" },
+    { }
+};
+MODULE_DEVICE_TABLE(of, dlp_of_match);
+
+static struct i2c_driver dlp_i2c_driver = {
+    .driver = {
+        .name = "dlp-pico-i2c",
+        .of_match_table = dlp_of_match,
+    },
+    .probe = dlp_probe,
+    .remove = dlp_remove,
+    .id_table = dlp_idtable,
+};
+
+static int __init lcdc_fb_init(void)
+{
+    int ret = i2c_add_driver(&dlp_i2c_driver);
+    if (ret) {
+        platform_driver_unregister(&lcdc_fb_driver);
+        return ret;
+    }
+
+    return platform_driver_register(&lcdc_fb_driver);
 }
 
 module_init(lcdc_fb_init);

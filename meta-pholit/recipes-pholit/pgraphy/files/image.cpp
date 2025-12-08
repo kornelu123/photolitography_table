@@ -1,7 +1,9 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <vector>
+#include <lcdc_drv.h>
 
+#include <sys/ioctl.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -48,6 +50,35 @@ write_img(uint8_t *data, uint32_t size)
     }
 
     return 0;
+}
+
+    int 
+evm_reset(void)
+{
+    return ioctl(fb_fd, FB_RESET, NULL);
+}
+
+    int 
+evm_off(void)
+{
+    return ioctl(fb_fd, FB_OFF, NULL);
+}
+
+    int 
+evm_on(void)
+{
+    return ioctl(fb_fd, FB_ON, NULL);
+}
+    int
+curtain_evm_on(void)
+{
+    return ioctl(fb_fd, FB_BLACKOUT, NULL);
+}
+
+    int
+curtain_evm_off(void)
+{
+    return ioctl(fb_fd, FB_RESTORE, NULL);
 }
 
     int

@@ -32,11 +32,25 @@ do_compile() {
 }
 
 do_install() {
+    # Debug: List files in source and build directories
+    bbnote "Files in ${S}:"
+    ls -la ${S}/
+    bbnote "Files in ${B}:"
+    ls -la ${B}/
+
     install -d ${D}${base_libdir}/modules/${KERNEL_VERSION}/kernel/drivers/misc
     install -m 0644 ${S}/lcdc_drv.ko ${D}${base_libdir}/modules/${KERNEL_VERSION}/kernel/drivers/misc/
-    
-    install -d ${D}${includedir}
-    install -m 0644 ${S}/lcdc_drv.h ${D}${includedir}/
+
+    # Check if header exists before installing
+    if [ -f ${S}/lcdc_drv.h ]; then
+        install -d ${D}${includedir}
+        install -m 0644 ${S}/lcdc_drv.h ${D}${includedir}/
+    elif [ -f ${B}/lcdc_drv.h ]; then
+        install -d ${D}${includedir}
+        install -m 0644 ${B}/lcdc_drv.h ${D}${includedir}/
+    else
+        bbwarn "lcdc_drv.h not found in ${S} or ${B}"
+    fi
 }
 
 # Package files - be explicit about what goes where

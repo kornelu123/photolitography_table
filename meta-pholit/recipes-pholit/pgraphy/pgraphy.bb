@@ -3,13 +3,9 @@ SECTION = "examples"
 LICENSE = "CLOSED" 
 PR = "r0" 
 
-DEPENDS = "cmake libgpiod i2c-tools opencv "
+DEPENDS = "cmake libgpiod i2c-tools opencv lcdc "
 
 SRC_URI="file://CMakeLists.txt \
-	 file://hal/ti_gpio.c \
-	 file://hal/ti_i2c.c \
-	 file://hal/ti_gpio.h \
-	 file://hal/ti_i2c.h \
 	 file://main.cpp \
 	 file://image.cpp \
 	 file://image.hpp \
